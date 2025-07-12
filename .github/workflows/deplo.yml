@@ -1,0 +1,85 @@
+# .github/workflows/deploy.yml
+
+# Name of the workflow, which will be displayed in the GitHub Actions tab.
+name: Deploy to aaPanel Server
+
+# --- Trigger ---
+# This workflow runs automatically on every push to the 'main' branch.
+on:
+  push:
+    branches:
+      - main
+
+# --- Jobs ---
+# A workflow run is made up of one or more jobs that can run sequentially or in parallel.
+jobs:
+  deploy:
+    # The type of runner that the job will run on. We use the latest version of Ubuntu.
+    runs-on: ubuntu-latest
+
+    # --- Steps ---
+    # A sequence of tasks that will be executed as part of the job.
+    steps:
+      # Step 1: Checkout the repository code
+      # This action checks-out your repository under $GITHUB_WORKSPACE, so your job can access it.
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # Step 2: Deploy files to the server using rsync over SSH
+      # This action securely copies the repository files to your server.
+      # It's efficient because rsync only transfers the files that have changed.
+      - name: Deploy to Server via rsync
+        uses: easingthemes/ssh-deploy@v5.0.0
+        with:
+          # --- Required Secrets ---
+          # These secrets must be created in your GitHub repository settings:
+          # Settings > Secrets and variables > Actions > New repository secret
+
+          # The private SSH key used for authentication.
+          # IMPORTANT: Do NOT include the -----BEGIN...----- or -----END...----- lines.
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+
+          # The IP address or domain name of your aaPanel server.
+          REMOTE_HOST: ${{ secrets.REMOTE_HOST }}
+
+          # The username for the SSH connection (e.g., 'root' or another user).
+          REMOTE_USER: ${{ secrets.REMOTE_USER }}
+          
+          # The absolute path to your website's root directory on the aaPanel server.
+          # Example: /www/wwwroot/your-domain.com
+          TARGET: ${{ secrets.REMOTE_TARGET }}
+
+          # --- Optional Parameters ---
+          
+          # The source directory from your repository to deploy. '.' means the entire repository.
+          SOURCE: "./"
+          
+          # Exclude files or directories from the deployment.
+          # It's critical to exclude the .git directory and the workflow file itself.
+          # You might also exclude the 'data' directory if you don't want to overwrite live data.
+          # If you do this, you must create the 'data' directory manually on the server first.
+          EXCLUDE: "/.git/, /.github/"
+
+      # Step 3: Set correct permissions on the server
+      # This step runs a command on your server AFTER the deployment to ensure
+      # that the web server (PHP) can write to the 'data' directory.
+      - name: Set Permissions for data directory
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.REMOTE_HOST }}
+          username: ${{ secrets.REMOTE_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            # Navigate to the website's root directory
+            cd ${{ secrets.REMOTE_TARGET }}
+            
+            # Set the permissions for the 'data' directory.
+            # This command gives the owner and group write permissions.
+            # This is necessary for your PHP scripts to save/update the JSON files.
+            # The '|| true' ensures the step doesn't fail if the directory doesn't exist yet on first run.
+            chmod -R 775 data || true
+            
+            # Optional: Set the ownership of the files to the web server user (e.g., 'www').
+            # This is a more robust solution but may require the SSH user to have sudo privileges.
+            # Uncomment the line below if needed and if your SSH user has passwordless sudo.
+            # sudo chown -R www:www ${{ secrets.REMOTE_TARGET }}
